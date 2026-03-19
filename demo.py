@@ -40,7 +40,8 @@ def safe_filename(title: str) -> str:
 
 
 # ── step 1: user input ────────────────────────────────────────────────────────
-theme = input("请输入短剧主题：").strip()
+# TEST CASE: hardcoded theme for reproducible testing
+theme = "一个关于姐妹情谊与背叛的悬疑短剧：两姐妹共同创业，却因一份遗嘱反目成仇"
 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # ── step 2: generate story outline ───────────────────────────────────────────
@@ -61,6 +62,34 @@ print("\n" + "─" * 60)
 print(outline)
 print("─" * 60)
 
+# ── step 2.5: extract character visual descriptions ──────────────────────────
+print("\n⏳ 提取角色外貌描述…")
+chars_json = chat(
+    system=(
+        "你是一位影视造型师。从故事大纲中提取主要人物，为每人生成一段固定的英文外貌描述，用于 AI 视频生成。\n"
+        "输出 ONLY 合法 JSON，格式如下（不要 markdown 代码块）：\n"
+        '{"characters": [\n'
+        '  {"name": "角色中文名", "visual": "concise English appearance description: gender, age, hair, skin, clothing style, one or two distinctive features"}\n'
+        "]}\n"
+        "要求：\n"
+        "- 涵盖所有主要角色（通常2-3人）\n"
+        "- visual 必须是英文，约30词，具体且可视化，不含性格描写\n"
+        "- 服装描述要固定（同一角色跨场景保持一致）"
+    ),
+    user=f"故事大纲：\n{outline}",
+    json_mode=True,
+)
+characters = json.loads(chars_json)["characters"]
+
+print("\n👤 角色外貌：")
+for c in characters:
+    print(f"  {c['name']}：{c['visual']}")
+
+# build character reference block to inject into scene prompts
+char_ref = "\n".join(
+    f"- {c['name']}: {c['visual']}" for c in characters
+)
+
 # ── step 3: split outline into scene video prompts ───────────────────────────
 print("\n⏳ 拆分场景并生成视频 prompt…")
 scenes_json = chat(
@@ -72,8 +101,10 @@ scenes_json = chat(
         "]}\n"
         "要求：\n"
         "- 恰好5个场景，按故事顺序排列\n"
-        "- 每个 English prompt 描述该场景的视觉画面，包含：镜头类型、环境、人物动作、光线氛围，约60词\n"
-        "- prompt 必须是英文，场景标题是中文"
+        "- 每个 English prompt 必须包含该场景出现的角色的完整外貌描述（直接嵌入 prompt 文本），以保证跨场景人物一致性\n"
+        "- 描述该场景的视觉画面：镜头类型、环境、人物动作、光线氛围，约70词\n"
+        "- prompt 必须是英文，场景标题是中文\n\n"
+        f"固定角色外貌（必须逐字嵌入每个相关场景的 prompt）：\n{char_ref}"
     ),
     user=f"故事大纲：\n{outline}",
     json_mode=True,
@@ -88,6 +119,9 @@ print(f"\n📁 输出目录：{out_dir}/")
 
 # save LLM results
 (out_dir / "outline.txt").write_text(outline, encoding="utf-8")
+(out_dir / "characters.json").write_text(
+    json.dumps(characters, ensure_ascii=False, indent=2), encoding="utf-8"
+)
 (out_dir / "script.json").write_text(
     json.dumps(script, ensure_ascii=False, indent=2), encoding="utf-8"
 )
